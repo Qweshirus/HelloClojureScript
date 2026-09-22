@@ -1,10 +1,7 @@
-{:deps {org.clojure/clojure {:mvn/version "1.11.1"}
-        org.clojure/clojurescript {:mvn/version "1.11.121"}
-        thheller/shadow-cljs {:mvn/version "2.28.0"}}
-
-:shadow-cljs {:source-paths ["src"]
-              :builds {:cli {:target :node-script
-                             :output-to "target/main.js"
-                             :main cli.core/main}}}
-
-:aliases {:shadow-cljs {:main-opts ["-m" "shadow.cljs.devtools.cli"]}}}
+{:source-paths ["src"]
+ 
+ :dependencies [[thheller/shadow-cljs "2.28.0"]]
+ 
+ :builds {:cli {:target :node-script
+                :output-to "target/main.js"
+                :main cli.core/main}}}

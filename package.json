@@ -8,11 +8,23 @@
     "watch": "shadow-cljs watch cli",
     "start": "node target/main.js"
   },
-  "keywords": ["clojurescript", "cli", "node"],
+  "keywords": [
+    "clojurescript",
+    "cli",
+    "node"
+  ],
   "author": "",
   "license": "MIT",
-  "dependencies": {},
   "devDependencies": {
-    "shadow-cljs": "^2.28.0"
-  }
+    "shadow-cljs": "^2.28.23"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Qweshirus/HelloClosureScript.git"
+  },
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Qweshirus/HelloClosureScript/issues"
+  },
+  "homepage": "https://github.com/Qweshirus/HelloClosureScript#readme"
 }
