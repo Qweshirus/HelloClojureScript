@@ -19,15 +19,14 @@
             entries)))
 
 (defn read-selected-lines [file-path]
-  "Читает из файла строки 1, 4, 7, 10, 13 (1-based).
+  "Читает из файла строки 1, 4, 7, 10, 13, 16, ... (каждую третью, начиная с первой).
    Возвращает вектор прочитанных строк."
   (let [fs (js/require "fs")
         content (.readFileSync fs file-path "utf8")
         lines (.split content "\n")
-        indices [0 3 6 9 12]]
-    (->> indices
-         (filter #(< % (count lines)))
-         (mapv #(nth lines %)))))
+        line-count (count lines)
+        indices (range 0 line-count 3)]
+    (mapv #(nth lines %) indices)))
 
 (defn read-lines-safe [file-path]
   "Безопасно читает выбранные строки из файла.
@@ -67,8 +66,8 @@
 (defn print-usage []
   (println "Usage: node target/main.js <path>")
   (println)
-  (println "Reads lines 1, 4, 7, 10, 13 from the given file or")
-  (println "recursively from all files in the given directory,")
+  (println "Reads every 3rd line (1, 4, 7, 10, 13, ...) from the given file")
+  (println "or recursively from all files in the given directory,")
   (println "then prints word statistics.")
   (println)
   (println "Arguments:")
@@ -100,7 +99,7 @@
       (println (str "Source: " source-label))
       (println (str "Files found: " (count files)))
       (println (str "Files read:  " (count ok-results)))
-      (println (str "Lines read per file: 1, 4, 7, 10, 13"))
+      (println (str "Lines read per file: every 3rd line (1, 4, 7, 10, 13, ...)"))
       (println)
       
       ;; Ошибки чтения
