@@ -65,24 +65,83 @@
           (vec (drop 2 argv))))))
 
 (defn print-usage []
-  (println "Usage: node target/main.js <directory>")
+  (println "Usage: node target/main.js <path>")
   (println)
-  (println "Recursively reads lines 1, 4, 7, 10, 13 from all files")
-  (println "in the given directory and prints word statistics.")
+  (println "Reads lines 1, 4, 7, 10, 13 from the given file or")
+  (println "recursively from all files in the given directory,")
+  (println "then prints word statistics.")
   (println)
   (println "Arguments:")
-  (println "  <directory>    Path to the directory to scan"))
+  (println "  <path>    Path to a file or directory to scan"))
+
+;; --- Обработка файлов ---
+
+(defn process-files [files source-label]
+  "Обрабатывает список файлов: читает строки, анализирует слова, выводит статистику."
+  (if (empty? files)
+    (do
+      (println (str "No files found in '" source-label "'."))
+      (js/process.exit 0))
+    
+    (let [results (mapv (fn [f]
+                          (let [res (read-lines-safe f)]
+                            (assoc res :file f)))
+                        files)
+          
+          ok-results (filter :ok results)
+          err-results (filter #(not (:ok %)) results)
+          
+          all-lines (mapcat :lines ok-results)
+          all-text (clojure.string/join "\n" all-lines)
+          words (get-words all-text)
+          stats (analyze-words words)]
+      
+      ;; Вывод обработанных файлов
+      (println (str "Source: " source-label))
+      (println (str "Files found: " (count files)))
+      (println (str "Files read:  " (count ok-results)))
+      (println (str "Lines read per file: 1, 4, 7, 10, 13"))
+      (println)
+      
+      ;; Ошибки чтения
+      (when (seq err-results)
+        (println "Files with errors:")
+        (doseq [r err-results]
+          (println (str "  " (:file r) " : " (:error r))))
+        (println))
+      
+      ;; Список прочитанных файлов
+      (println "Processed files:")
+      (doseq [r ok-results]
+        (println (str "  " (:file r) 
+                     " (" (count (:lines r)) " lines read)")))
+      (println)
+      
+      ;; Статистика
+      (println (str "Total words:  " (:total-words stats)))
+      (println (str "Unique words: " (:unique-words stats)))
+      (println)
+      
+      (if (zero? (:total-words stats))
+        (println "No words found.")
+        (do
+          (println "Word frequencies:")
+          (doseq [[word cnt] (sorted-frequencies 
+                               (:word-frequencies stats))]
+            (println (str "  " word " : " cnt)))))
+      
+      (js/process.exit 0))))
 
 ;; --- Точка входа ---
 
 (defn main [& args]
   (let [js-args (get-cli-args args)
-        dir-path (first js-args)]
+        input-path (first js-args)]
     
     (cond
-      (nil? dir-path)
+      (nil? input-path)
       (do
-        (println "Error: Directory path is required.")
+        (println "Error: Path is required.")
         (println)
         (print-usage)
         (js/process.exit 1))
@@ -90,70 +149,25 @@
       :else
       (try
         (let [fs (js/require "fs")
-              stat (fs.statSync dir-path)]
+              stat (fs.statSync input-path)]
           
-          (if-not (.isDirectory stat)
-            (do
-              (println (str "Error: '" dir-path "' is not a directory."))
-              (js/process.exit 1))
+          (cond
+            ;; Это файл
+            (.isFile stat)
+            (process-files [input-path] input-path)
             
-            (let [files (get-all-files dir-path)]
-              
-              (if (empty? files)
-                (do
-                  (println (str "No files found in '" dir-path "'."))
-                  (js/process.exit 0))
-                
-                (let [results (mapv (fn [f]
-                                      (let [res (read-lines-safe f)]
-                                        (assoc res :file f)))
-                                    files)
-                      
-                      ok-results (filter :ok results)
-                      err-results (filter #(not (:ok %)) results)
-                      
-                      all-lines (mapcat :lines ok-results)
-                      all-text (clojure.string/join "\n" all-lines)
-                      words (get-words all-text)
-                      stats (analyze-words words)]
-                  
-                  ;; Вывод обработанных файлов
-                  (println (str "Directory: " dir-path))
-                  (println (str "Files found: " (count files)))
-                  (println (str "Files read:  " (count ok-results)))
-                  (println (str "Lines read per file: 1, 4, 7, 10, 13"))
-                  (println)
-                  
-                  ;; Ошибки чтения
-                  (when (seq err-results)
-                    (println "Files with errors:")
-                    (doseq [r err-results]
-                      (println (str "  " (:file r) " : " (:error r))))
-                    (println))
-                  
-                  ;; Список прочитанных файлов
-                  (println "Processed files:")
-                  (doseq [r ok-results]
-                    (println (str "  " (:file r) 
-                                 " (" (count (:lines r)) " lines read)")))
-                  (println)
-                  
-                  ;; Статистика
-                  (println (str "Total words:  " (:total-words stats)))
-                  (println (str "Unique words: " (:unique-words stats)))
-                  (println)
-                  
-                  (if (zero? (:total-words stats))
-                    (println "No words found.")
-                    (do
-                      (println "Word frequencies:")
-                      (doseq [[word cnt] (sorted-frequencies 
-                                           (:word-frequencies stats))]
-                        (println (str "  " word " : " cnt)))))
-                  
-                  (js/process.exit 0))))))
+            ;; Это директория
+            (.isDirectory stat)
+            (let [files (get-all-files input-path)]
+              (process-files files input-path))
+            
+            ;; Ни то, ни другое
+            :else
+            (do
+              (println (str "Error: '" input-path "' is not a regular file or directory."))
+              (js/process.exit 1))))
         
         (catch :default e
-          (println (str "Error: Cannot access '" dir-path "'"))
+          (println (str "Error: Cannot access '" input-path "'"))
           (println (str "Details: " (.-message e)))
           (js/process.exit 1))))))
