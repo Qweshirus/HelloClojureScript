@@ -3,7 +3,12 @@
 (ns cli.core)
 
 (defn main []
-  (do 
-    (println "Hello Clojure")
-	(js/process.exit 0)
-	))
+  (let [readline (js/require "readline")
+        rl (.createInterface readline
+                             #js {:input js/process.stdin
+                                  :output js/process.stdout})]
+    (.question rl "Plese enter your name: "
+               (fn [name]
+                 (println (str "Hello, " name))
+                 (.close rl)
+                 (js/process.exit 0)))))
