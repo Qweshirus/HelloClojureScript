@@ -4,9 +4,9 @@
 
 ;; --- Константы (в Цельсиях) ---
 
-(def ^:private freezing-point-c 0)    ;; 0°C
-(def ^:private boiling-point-c 100)   ;; 100°C
-(def ^:private plasma-point-c 3000)   ;; ~3000°C
+(def ^:private freezing-point-c 0)
+(def ^:private boiling-point-c 100)
+(def ^:private plasma-point-c 3000)
 
 ;; --- Функции конвертации ---
 
@@ -18,22 +18,27 @@
 
 (defn parse-args [args]
   "Парсит аргументы командной строки.
-   Ищет флаги --celsius и --fahrenheit, возвращает карту."
+   Собирает все значения после --celsius и --fahrenheit в векторы."
   (loop [remaining args
-         result {}]
+         result {:celsius [] :fahrenheit []}
+         current-flag nil]
     (if (empty? remaining)
       result
-      (let [current (first remaining)
-            next-val (second remaining)]
+      (let [current (first remaining)]
         (cond
           (= current "--celsius")
-          (recur (drop 2 remaining) (assoc result :celsius next-val))
+          (recur (rest remaining) result :celsius)
 
           (= current "--fahrenheit")
-          (recur (drop 2 remaining) (assoc result :fahrenheit next-val))
+          (recur (rest remaining) result :fahrenheit)
 
           :else
-          (recur (rest remaining) result))))))
+          (if current-flag
+            (recur (rest remaining)
+                   (update result current-flag conj current)
+                   current-flag)
+            ;; Если значение идёт без флага — игнорируем (или можно считать ошибкой)
+            (recur (rest remaining) result current-flag)))))))
 
 (defn get-cli-args [args]
   "Возвращает список аргументов командной строки."
@@ -63,64 +68,76 @@
 ;; --- Вспомогательные функции ---
 
 (defn print-usage []
-  (println "Usage: node target/main.js [option] <temperature>")
+  (println "Usage: node target/main.js [options]")
   (println)
   (println "Options:")
-  (println "  --celsius <value>       Temperature in Celsius")
-  (println "  --fahrenheit <value>    Temperature in Fahrenheit")
+  (println "  --celsius <value> [<value> ...]       Temperatures in Celsius")
+  (println "  --fahrenheit <value> [<value> ...]    Temperatures in Fahrenheit")
   (println)
   (println "Examples:")
-  (println "  node target/main.js --celsius -10")
-  (println "  node target/main.js --fahrenheit 212")
-  (println "  node target/main.js --celsius 5000"))
+  (println "  node target/main.js --celsius -10 25 100 5000")
+  (println "  node target/main.js --fahrenheit 32 212 5432")
+  (println "  node target/main.js --celsius 0 100 --fahrenheit 32 212"))
 
 (defn round2 [n]
   (js/parseFloat (.toFixed n 2)))
+
+(defn parse-number [s]
+  "Пытается преобразовать строку в число. Возвращает nil при ошибке."
+  (let [n (js/Number s)]
+    (when-not (js/isNaN n) n)))
+
+(defn process-values [values unit-label convert-fn]
+  "Обрабатывает список значений: парсит, конвертирует, выводит.
+   Возвращает true, если всё успешно, и false, если была ошибка."
+  (let [parsed (mapv (fn [s]
+                       (let [n (parse-number s)]
+                         (if n
+                           {:ok true :raw s :value n}
+                           {:ok false :raw s})))
+                     values)]
+    (if (some #(not (:ok %)) parsed)
+      ;; Есть ошибка — выводим все невалидные значения
+      (do
+        (doseq [p parsed
+                :when (not (:ok p))]
+          (println (str "Error: '" (:raw p) "' is not a valid number.")))
+        false)
+      ;; Всё ок — выводим результаты
+      (do
+        (doseq [p parsed]
+          (let [num (:value p)
+                temp-c (convert-fn num)
+                state (water-state temp-c)]
+            (println (str unit-label ": " (round2 num)
+                         "  →  " (round2 temp-c) " °C  →  " (state-name state)))))
+        true))))
 
 ;; --- Точка входа ---
 
 (defn main [& args]
   (let [js-args (get-cli-args args)
         parsed (parse-args js-args)
-        c-val (:celsius parsed)
-        f-val (:fahrenheit parsed)]
+        c-vals (:celsius parsed)
+        f-vals (:fahrenheit parsed)]
+    
     (cond
-      ;; Оба флага указаны одновременно
-      (and c-val f-val)
-      (do
-        (println "Error: Specify only one of --celsius or --fahrenheit.")
-        (println)
-        (print-usage)
-        (js/process.exit 1))
-
-      ;; Ни один флаг не указан
-      (and (nil? c-val) (nil? f-val))
+      ;; Ни одного значения не передано
+      (and (empty? c-vals) (empty? f-vals))
       (do
         (print-usage)
         (js/process.exit 1))
 
-      ;; Цельсии
-      c-val
-      (let [num (js/Number c-val)]
-        (if (js/isNaN num)
+      :else
+      (let [c-ok (if (seq c-vals)
+                   (process-values c-vals "°C" identity)
+                   true)
+            f-ok (if (seq f-vals)
+                   (process-values f-vals "°F" fahrenheit->celsius)
+                   true)]
+        (if (and c-ok f-ok)
+          (js/process.exit 0)
           (do
-            (println (str "Error: '" c-val "' is not a valid number."))
-            (js/process.exit 1))
-          (let [state (water-state num)]
-            (println (str "Температура: " (round2 num) " °C"))
-            (println (str "Состояние:   " (state-name state)))
-            (js/process.exit 0))))
-
-      ;; Фаренгейты
-      f-val
-      (let [num (js/Number f-val)
-            temp-c (fahrenheit->celsius num)]
-        (if (js/isNaN num)
-          (do
-            (println (str "Error: '" f-val "' is not a valid number."))
-            (js/process.exit 1))
-          (let [state (water-state temp-c)]
-            (println (str "Температура: " (round2 num) " °F"))
-            (println (str "В Цельсиях:  " (round2 temp-c) " °C"))
-            (println (str "Состояние:   " (state-name state)))
-            (js/process.exit 0)))))))
+            (println)
+            (print-usage)
+            (js/process.exit 1)))))))
