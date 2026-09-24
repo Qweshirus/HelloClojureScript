@@ -1,5 +1,3 @@
-;; npx shadow-cljs watch cli
-;; node target/main.js
 (ns cli.core)
 
 ;; --- Вычисление PPI ---
@@ -86,7 +84,7 @@
   (println)
   (println "Examples:")
   (println "  node target/main.js --size 1920x1080 --diagonal 24")
-  (println "  node target/main.js --size 3840x2160 --diagonal 27"))
+  (println "  node target/main.js --size 3840x2160 --diagonal 27")))
 
 (defn round2 [n]
   (js/parseFloat (.toFixed n 2)))
