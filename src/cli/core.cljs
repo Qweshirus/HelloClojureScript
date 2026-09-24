@@ -38,9 +38,27 @@
 
 ;; --- Анализ текста ---
 
+(defn clean-word [word]
+  "Удаляет ВСЕ нулевые символы, а также знаки препинания, кавычки и скобки с краев слова.
+   Возвращает nil, если слово состояло только из этих символов."
+  (let [;; Создаем глобальное регулярное выражение для поиска ВСЕХ нулевых символов
+        null-regex (js/RegExp. "\\x00|\\u0000" "g")
+        cleaned (-> word
+                    ;; 1. Удаляем все нулевые символы из любой позиции строки
+                    (.replace null-regex "")
+                    ;; 2. Удаляем не-буквенные/не-цифровые символы с начала
+                    (.replace #"^[^a-zA-Z0-9а-яА-ЯёЁ]+" "")
+                    ;; 3. Удаляем не-буквенные/не-цифровые символы с конца
+                    (.replace #"[^a-zA-Z0-9а-яА-ЯёЁ]+$" ""))]
+    (when (seq cleaned) cleaned)))
+
 (defn get-words [text]
-  "Извлекает все слова из текста и приводит к нижнему регистру."
-  (map #(.toLowerCase %) (re-seq #"\S+" text)))
+  "Извлекает все слова из текста, очищает их от знаков препинания по краям
+   и приводит к нижнему регистру."
+  (->> (re-seq #"\S+" text)
+       (map clean-word)
+       (filter some?)
+       (map #(.toLowerCase %))))
 
 (defn analyze-words [words]
   "Анализирует список слов и возвращает статистику."
@@ -69,6 +87,8 @@
   (println "Reads every 3rd line (1, 4, 7, 10, 13, ...) from the given file")
   (println "or recursively from all files in the given directory,")
   (println "then prints word statistics.")
+  (println)
+  (println "Words are cleaned of punctuation, quotes, and brackets at the edges.")
   (println)
   (println "Arguments:")
   (println "  <path>    Path to a file or directory to scan"))
