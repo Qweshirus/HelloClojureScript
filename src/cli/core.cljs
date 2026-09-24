@@ -2,87 +2,57 @@
 ;; node target/main.js
 (ns cli.core)
 
-;; --- Константы ---
+;; --- Парсинг даты ---
 
-(def ^:private seconds-in-minute 60)
-(def ^:private seconds-in-hour (* 60 seconds-in-minute))
-(def ^:private seconds-in-day (* 24 seconds-in-hour))
-(def ^:private seconds-in-year (* 365 seconds-in-day))
+(defn parse-date [s]
+  "Парсит строку даты в формате dd-mm-yyyy.
+   Возвращает {:ok true :day d :month m :year y} или {:ok false :raw s :reason ...}."
+  (if (or (nil? s) (empty? s))
+    {:ok false :raw s :reason "date is empty"}
+    (let [matches (re-matches #"^(\d{2})-(\d{2})-(\d{4})$" s)]
+      (if (nil? matches)
+        {:ok false :raw s :reason "expected format dd-mm-yyyy (e.g. 15-06-1990)"}
+        (let [day (js/parseInt (nth matches 1) 10)
+              month (js/parseInt (nth matches 2) 10)
+              year (js/parseInt (nth matches 3) 10)]
+          (cond
+            ;; Проверка диапазонов
+            (or (< month 1) (> month 12))
+            {:ok false :raw s :reason "month must be between 01 and 12"}
 
-;; --- Конвертация ---
+            (or (< day 1) (> day 31))
+            {:ok false :raw s :reason "day must be between 01 and 31"}
 
-(defn seconds->duration [total-seconds]
-  "Конвертирует секунды в года, дни, часы, минуты и секунды.
-   Возвращает карту {:years :days :hours :minutes :seconds}."
-  (let [years (quot total-seconds seconds-in-year)
-        rem1 (mod total-seconds seconds-in-year)
-        days (quot rem1 seconds-in-day)
-        rem2 (mod rem1 seconds-in-day)
-        hours (quot rem2 seconds-in-hour)
-        rem3 (mod rem2 seconds-in-hour)
-        minutes (quot rem3 seconds-in-minute)
-        seconds (mod rem3 seconds-in-minute)]
-    {:years years
-     :days days
-     :hours hours
-     :minutes minutes
-     :seconds seconds}))
+            (< year 1)
+            {:ok false :raw s :reason "year must be positive"}
 
-;; --- Форматирование ---
+            ;; Проверка реальной даты через js/Date
+            :else
+            (let [date (js/Date. year (dec month) day)]
+              (if (or (not= (.getFullYear date) year)
+                      (not= (.getMonth date) (dec month))
+                      (not= (.getDate date) day))
+                {:ok false :raw s :reason "invalid date (e.g. Feb 30 does not exist)"}
+                {:ok true :day day :month month :year year}))))))))
 
-(defn pad2 [n]
-  "Дополняет число нулями слева до 2 знаков."
-  (let [s (str n)]
-    (if (< (count s) 2)
-      (str "0" s)
-      s)))
+;; --- Вычисление возраста ---
 
-(defn pluralize [n singular plural]
-  "Возвращает правильную форму слова в зависимости от числа.
-   Для английского языка: 1 -> singular, иначе -> plural."
-  (if (= n 1)
-    singular
-    plural))
-
-(defn format-time [hours minutes seconds]
-  "Форматирует время в виде HH:MM:SS."
-  (str (pad2 hours) ":" (pad2 minutes) ":" (pad2 seconds)))
-
-(defn format-duration [duration]
-  "Форматирует длительность в человекочитаемую строку.
-   - Если years > 0: 'X year(s), Y day(s), HH:MM:SS'
-   - Если years == 0 и days > 0: 'Y day(s), HH:MM:SS'
-   - Если years == 0 и days == 0: 'HH:MM:SS'"
-  (let [{:keys [years days hours minutes seconds]} duration
-        time-part (format-time hours minutes seconds)
-        year-word (pluralize years "year" "years")
-        day-word (pluralize days "day" "days")]
-    (cond
-      (pos? years)
-      (str years " " year-word ", " days " " day-word ", " time-part)
-
-      (pos? days)
-      (str days " " day-word ", " time-part)
-
-      :else
-      time-part)))
-
-;; --- Парсинг и валидация ---
-
-(defn parse-int [s]
-  "Пытается преобразовать строку в целое число."
-  (let [n (js/Number s)]
-    (if (or (js/isNaN n)
-            (not (js/Number.isInteger n)))
-      {:ok false :raw s}
-      {:ok true :value n})))
-
-(defn parse-non-negative-int [s]
-  "Пытается преобразовать строку в неотрицательное целое число."
-  (let [parsed (parse-int s)]
-    (if (and (:ok parsed) (>= (:value parsed) 0))
-      parsed
-      {:ok false :raw s})))
+(defn calculate-age [birth-day birth-month birth-year]
+  "Вычисляет возраст на текущую дату.
+   Возвращает карту {:age :is-adult}."
+  (let [now (js/Date.)
+        current-year (.getFullYear now)
+        current-month (inc (.getMonth now))
+        current-day (.getDate now)
+        ;; Базовый возраст — разница лет
+        age-base (- current-year birth-year)
+        ;; Если день рождения ещё не наступил в этом году, вычитаем 1
+        birthday-not-yet (or (< current-month birth-month)
+                             (and (= current-month birth-month)
+                                  (< current-day birth-day)))
+        age (if birthday-not-yet (dec age-base) age-base)
+        is-adult (>= age 18)]
+    {:age age :is-adult is-adult}))
 
 ;; --- CLI ---
 
@@ -94,46 +64,58 @@
           (vec (drop 2 argv))))))
 
 (defn print-usage []
-  (println "Usage: node target/main.js <seconds>")
+  (println "Usage: node target/main.js <birth-date>")
   (println)
-  (println "Converts seconds to years, days, hours, minutes and seconds.")
+  (println "Calculates age and checks if a person is an adult (18+).")
   (println)
   (println "Arguments:")
-  (println "  <seconds>    Number of seconds (non-negative integer)")
+  (println "  <birth-date>    Date of birth in format dd-mm-yyyy")
   (println)
   (println "Examples:")
-  (println "  node target/main.js 3661")
-  (println "  node target/main.js 86400")
-  (println "  node target/main.js 31536000"))
+  (println "  node target/main.js 15-06-1990")
+  (println "  node target/main.js 01-01-2010"))
 
 ;; --- Точка входа ---
 
 (defn main [& args]
   (let [js-args (get-cli-args args)
-        seconds-str (first js-args)]
+        date-str (first js-args)]
     
     (cond
       ;; Аргумент не указан
-      (nil? seconds-str)
+      (nil? date-str)
       (do
-        (println "Error: Seconds argument is required.")
+        (println "Error: Birth date is required.")
         (println)
         (print-usage)
         (js/process.exit 1))
 
       :else
-      (let [parsed (parse-non-negative-int seconds-str)]
+      (let [parsed (parse-date date-str)]
         (if (not (:ok parsed))
           ;; Ошибка валидации
           (do
-            (println (str "Error: '" (:raw parsed) "' is not a valid non-negative integer."))
+            (println (str "Error: Invalid date '" (:raw parsed) "' — " (:reason parsed)))
             (println)
             (print-usage)
             (js/process.exit 1))
           
-          ;; Всё ок — конвертируем
-          (let [total-seconds (:value parsed)
-                duration (seconds->duration total-seconds)
-                formatted (format-duration duration)]
-            (println (str total-seconds " seconds = " formatted))
-            (js/process.exit 0)))))))
+          ;; Проверка, что дата не в будущем
+          (let [{:keys [day month year]} parsed
+                birth-date (js/Date. year (dec month) day)
+                now (js/Date.)]
+            (if (> (.getTime birth-date) (.getTime now))
+              (do
+                (println (str "Error: Date '" date-str "' is in the future."))
+                (println)
+                (print-usage)
+                (js/process.exit 1))
+              
+              ;; Всё ок — вычисляем возраст
+              (let [result (calculate-age day month year)
+                    age (:age result)
+                    is-adult (:is-adult result)]
+                (println (str "Birth date:   " date-str))
+                (println (str "Age:          " age " years old"))
+                (println (str "Adult (18+):  " (if is-adult "Yes" "No")))
+                (js/process.exit 0)))))))))
