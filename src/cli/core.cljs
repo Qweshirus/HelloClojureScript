@@ -2,26 +2,27 @@
 ;; node target/main.js
 (ns cli.core)
 
-;; --- Вычисление простых процентов ---
+;; --- Вычисление сложных процентов ---
 
-(defn calculate-simple-interest [principal rate-percent years]
-  "Вычисляет простые проценты.
-   Формула: Interest = P × r × t
-   где P — сумма, r — ставка (в долях), t — время в годах.
+(defn calculate-compound-interest [principal rate-percent years periods]
+  "Вычисляет сложные проценты.
+   Формула: A = P × (1 + r/n)^(n×t)
+   где P — сумма, r — ставка (в долях), n — количество начислений в год,
+   t — время в годах.
    Возвращает карту {:interest :total}."
   (let [rate (/ rate-percent 100)
-        interest (* principal rate years)
-        total (+ principal interest)]
+        total (* principal (js/Math.pow (+ 1 (/ rate periods)) (* periods years)))
+        interest (- total principal)]
     {:interest interest :total total}))
 
 ;; --- Парсинг аргументов ---
 
 (defn parse-args [args]
   "Парсит аргументы командной строки.
-   Собирает значения после флагов --years и --rate,
+   Собирает значения после флагов --years, --rate, --periods,
    а также неименованные параметры (сумма)."
   (loop [remaining args
-         result {:years nil :rate nil :positional []}
+         result {:years nil :rate nil :periods nil :positional []}
          current-flag nil]
     (if (empty? remaining)
       result
@@ -32,6 +33,9 @@
 
           (= current "--rate")
           (recur (rest remaining) result :rate)
+
+          (= current "--periods")
+          (recur (rest remaining) result :periods)
 
           :else
           (if current-flag
@@ -58,6 +62,15 @@
       {:ok false :raw s :reason "must be a positive number"}
       {:ok true :value n})))
 
+(defn parse-positive-int [s]
+  "Пытается преобразовать строку в положительное целое число."
+  (let [n (js/Number s)]
+    (if (or (js/isNaN n)
+            (not (js/Number.isInteger n))
+            (<= n 0))
+      {:ok false :raw s :reason "must be a positive integer"}
+      {:ok true :value n})))
+
 (defn parse-percentage [s]
   "Пытается преобразовать строку в процент (число от 0 до 100)."
   (let [n (js/Number s)]
@@ -70,13 +83,15 @@
 ;; --- CLI ---
 
 (defn print-usage []
-  (println "Usage: node target/main.js [--years <years>] [--rate <percent>] <principal>")
+  (println "Usage: node target/main.js [--years <y>] [--rate <percent>] [--periods <n>] <principal>")
   (println)
-  (println "Calculates simple interest.")
+  (println "Calculates compound interest.")
+  (println "Formula: A = P × (1 + r/n)^(n×t)")
   (println)
   (println "Options:")
   (println "  --years <years>       Time in years (positive number, optional, default: 1)")
   (println "  --rate <percent>      Annual interest rate (0-100, optional, default: 0)")
+  (println "  --periods <n>         Compounding periods per year (positive integer, optional, default: 1)")
   (println)
   (println "Arguments:")
   (println "  <principal>           Initial amount (positive number, required)")
@@ -87,10 +102,21 @@
   (println "  node target/main.js 1000")
   (println "  node target/main.js --rate 5 1000")
   (println "  node target/main.js --years 3 --rate 5 1000")
+  (println "  node target/main.js --years 3 --rate 5 --periods 12 1000")
   (println "  node target/main.js 1000 --years 3 --rate 5"))
 
 (defn round2 [n]
   (js/parseFloat (.toFixed n 2)))
+
+(defn periods-name [n]
+  "Возвращает человекочитаемое название периода начисления."
+  (case n
+    1     "yearly"
+    2     "semi-annually"
+    4     "quarterly"
+    12    "monthly"
+    365   "daily"
+    (str "every " n " times/year")))
 
 ;; --- Точка входа ---
 
@@ -99,6 +125,7 @@
         parsed (parse-args js-args)
         years-str (:years parsed)
         rate-str (:rate parsed)
+        periods-str (:periods parsed)
         positional (:positional parsed)
         principal-str (first positional)]
     
@@ -123,9 +150,11 @@
       (let [;; Значения по умолчанию
             years-val (or years-str "1")
             rate-val (or rate-str "0")
+            periods-val (or periods-str "1")
             
             years-parsed (parse-positive-number years-val)
             rate-parsed (parse-percentage rate-val)
+            periods-parsed (parse-positive-int periods-val)
             principal-parsed (parse-positive-number principal-str)]
         
         (cond
@@ -145,6 +174,14 @@
             (print-usage)
             (js/process.exit 1))
 
+          ;; Ошибка в периодах
+          (not (:ok periods-parsed))
+          (do
+            (println (str "Error: Invalid periods '" (:raw periods-parsed) "' — " (:reason periods-parsed)))
+            (println)
+            (print-usage)
+            (js/process.exit 1))
+
           ;; Ошибка в сумме
           (not (:ok principal-parsed))
           (do
@@ -158,10 +195,12 @@
           (let [principal (:value principal-parsed)
                 rate (:value rate-parsed)
                 years (:value years-parsed)
-                result (calculate-simple-interest principal rate years)]
+                periods (:value periods-parsed)
+                result (calculate-compound-interest principal rate years periods)]
             (println (str "Principal:         " (round2 principal)))
             (println (str "Annual rate:       " rate "%"))
             (println (str "Time:              " (round2 years) " years"))
+            (println (str "Compounding:       " periods " times/year (" (periods-name periods) ")"))
             (println (str "Interest earned:   " (round2 (:interest result))))
             (println (str "Total amount:      " (round2 (:total result))))
             (js/process.exit 0)))))))
