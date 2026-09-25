@@ -1,5 +1,3 @@
-;; npx shadow-cljs watch cli
-;; node target/main.js
 (ns cli.core)
 
 ;; --- Вычисление ROI ---
